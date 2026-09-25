@@ -15,14 +15,28 @@ const SYSTEM_PROMPT =
   "Keep the story moving toward a satisfying conclusion — do not stall forever. " +
   "When told this is the FINAL turn, write a proper dramatic ending (no more choices) that resolves the adventure.";
 
+function cleanChoiceText(text) {
+  let t = text.trim();
+  // Strip wrapping quotes the model sometimes adds around the whole choice.
+  t = t.replace(/^['"]+/, "").replace(/['"]+$/, "").trim();
+  // Strip a duplicated leading "N. " the model sometimes echoes inside the choice text itself.
+  t = t.replace(/^\d+\.\s*/, "").trim();
+  t = t.replace(/^['"]+/, "").replace(/['"]+$/, "").trim();
+  return t;
+}
+
 function parseScene(raw) {
   const lines = raw.split("\n").map((l) => l.trim()).filter(Boolean);
   const choices = [];
   const narrationLines = [];
   for (const line of lines) {
     const m = line.match(/^(\d)\.\s*(.+)$/);
-    if (m) choices.push(m[2].trim());
-    else narrationLines.push(line);
+    if (m) {
+      const cleaned = cleanChoiceText(m[2]);
+      if (cleaned && !/^type (a |your )?response/i.test(cleaned)) choices.push(cleaned);
+    } else if (!/^type (a |your )?response/i.test(line)) {
+      narrationLines.push(line);
+    }
   }
   return { narration: narrationLines.join("\n").trim(), choices };
 }
