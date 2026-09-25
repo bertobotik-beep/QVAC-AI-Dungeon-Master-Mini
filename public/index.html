@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>QVAC AI Dungeon Master Mini</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: linear-gradient(160deg, #f0e6ff 0%, #dcc9ff 100%);
+    font-family: system-ui, sans-serif;
+    color: #3f1e5c;
+    display: flex;
+    justify-content: center;
+    padding: 46px 20px;
+  }
+  .wrap { width: 100%; max-width: 640px; text-align: center; }
+  .tie { font-size: 2rem; margin-bottom: 4px; }
+  h1 { font-size: 1.6rem; margin: 0 0 6px; color: #3f1fa8; font-weight: 800; }
+  .subtitle { color: #604585; margin-bottom: 24px; font-size: 0.9rem; }
+  .card {
+    background: #faf7ff;
+    border: 3px dashed #6b3fd9;
+    border-radius: 20px;
+    padding: 26px 24px;
+    text-align: left;
+  }
+  input[type=text] {
+    width: 100%;
+    padding: 12px 14px;
+    border-radius: 12px;
+    border: 2px solid #6b3fd9;
+    background: #fff;
+    color: #3f1e5c;
+    font-family: inherit;
+    font-size: 1rem;
+    margin-bottom: 12px;
+  }
+  .story { display: flex; flex-direction: column; gap: 14px; max-height: 420px; overflow-y: auto; margin-bottom: 14px; padding-right: 4px; }
+  .scene { background: #fff; border: 2px solid #6b3fd9; border-radius: 14px; padding: 14px 16px; line-height: 1.55; white-space: pre-line; }
+  .player-choice { align-self: flex-end; background: #6b3fd9; color: #fff; border-radius: 14px; padding: 8px 14px; font-weight: 600; font-size: 0.9rem; }
+  .choices { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+  .choice-btn { text-align: left; padding: 10px 14px; border-radius: 12px; border: 2px solid #6b3fd9; background: #eee6fb; color: #3f1e5c; font-family: inherit; font-size: 0.92rem; cursor: pointer; }
+  .choice-btn:hover { background: #ddc9fb; }
+  .row { display: flex; gap: 8px; }
+  button.action {
+    padding: 12px 24px;
+    border: none;
+    border-radius: 999px;
+    font-size: 0.95rem;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+    background: #6b3fd9;
+    color: #fff;
+    box-shadow: 0 5px 0 #3f1fa8;
+    white-space: nowrap;
+  }
+  button.action:active { transform: translateY(3px); box-shadow: 0 2px 0 #3f1fa8; }
+  button.action:disabled { opacity: 0.4; cursor: not-allowed; }
+  .status { margin-top: 10px; font-size: 0.85rem; color: #604585; min-height: 1.2em; text-align: center; }
+  .the-end { text-align: center; font-weight: 800; color: #3f1fa8; margin-top: 10px; }
+  .footer-note { color: #604585; font-size: 0.78rem; margin-top: 20px; text-align: center; }
+  .spinner {
+    display: inline-block;
+    width: 13px; height: 13px;
+    border: 2px solid #e0d4f5;
+    border-top-color: #6b3fd9;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    vertical-align: middle;
+    margin-right: 8px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="tie">🐉</div>
+    <h1 style="text-align:center;">QVAC AI Dungeon Master Mini</h1>
+    <p class="subtitle" style="text-align:center;">Pick a genre, then live the adventure the AI narrates.</p>
+
+    <div class="card" id="startCard">
+      <input type="text" id="genreInput" placeholder="e.g. cyberpunk heist, spooky pirate island, cozy fantasy village" />
+      <button class="action" id="startBtn" style="width:100%;">Begin Adventure</button>
+      <div class="status" id="startStatus"></div>
+    </div>
+
+    <div class="card" id="storyCard" style="display:none;">
+      <div class="story" id="story"></div>
+      <div class="choices" id="choices"></div>
+      <div class="row" id="freeRow">
+        <input type="text" id="freeInput" placeholder="Or type your own action..." />
+        <button class="action" id="freeBtn">Go</button>
+      </div>
+      <div class="status" id="status"></div>
+      <button class="action" id="restartBtn" style="display:none; width:100%; margin-top:10px; background:#604585; box-shadow:0 5px 0 #3f1e5c;">Start New Adventure</button>
+    </div>
+
+    <p class="footer-note">Everything runs locally on your machine. No text ever leaves this device.</p>
+  </div>
+
+  <script>
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    const startCard = document.getElementById('startCard');
+    const storyCard = document.getElementById('storyCard');
+    const genreInput = document.getElementById('genreInput');
+    const startBtn = document.getElementById('startBtn');
+    const startStatus = document.getElementById('startStatus');
+    const story = document.getElementById('story');
+    const choicesBox = document.getElementById('choices');
+    const freeInput = document.getElementById('freeInput');
+    const freeBtn = document.getElementById('freeBtn');
+    const freeRow = document.getElementById('freeRow');
+    const status = document.getElementById('status');
+    const restartBtn = document.getElementById('restartBtn');
+
+    let history = [];
+    let turnCount = 0;
+    let ended = false;
+
+    function addScene(text) {
+      const div = document.createElement('div');
+      div.className = 'scene';
+      div.textContent = text;
+      story.appendChild(div);
+      story.scrollTop = story.scrollHeight;
+    }
+
+    function addPlayerChoice(text) {
+      const div = document.createElement('div');
+      div.className = 'player-choice';
+      div.textContent = text;
+      story.appendChild(div);
+      story.scrollTop = story.scrollHeight;
+    }
+
+    function renderChoices(choices) {
+      choicesBox.innerHTML = '';
+      choices.forEach((c) => {
+        const btn = document.createElement('button');
+        btn.className = 'choice-btn';
+        btn.textContent = c;
+        btn.addEventListener('click', () => act(c));
+        choicesBox.appendChild(btn);
+      });
+    }
+
+    function setBusy(busy) {
+      freeBtn.disabled = busy || ended;
+      freeInput.disabled = busy || ended;
+      [...choicesBox.querySelectorAll('button')].forEach((b) => (b.disabled = busy || ended));
+    }
+
+    async function begin() {
+      const genre = genreInput.value.trim();
+      if (!genre) return;
+      startBtn.disabled = true;
+      startStatus.innerHTML = '<span class="spinner"></span>The DM is setting the scene...';
+      try {
+        const res = await fetch('/api/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ genre }),
+        });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        history = data.history;
+        turnCount = data.turnCount;
+        startCard.style.display = 'none';
+        storyCard.style.display = 'block';
+        addScene(data.narration);
+        renderChoices(data.choices);
+      } catch (err) {
+        startStatus.textContent = 'Error: ' + err.message;
+      } finally {
+        startBtn.disabled = false;
+      }
+    }
+
+    async function act(choiceText) {
+      if (ended) return;
+      setBusy(true);
+      addPlayerChoice('→ ' + choiceText);
+      status.innerHTML = '<span class="spinner"></span>The story continues...';
+      choicesBox.innerHTML = '';
+      try {
+        const res = await fetch('/api/continue', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ history, choice: choiceText, turnCount }),
+        });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        history = data.history;
+        turnCount = data.turnCount;
+        ended = data.ended;
+        addScene(data.narration);
+        status.textContent = '';
+        if (ended) {
+          freeRow.style.display = 'none';
+          restartBtn.style.display = 'block';
+          const endDiv = document.createElement('div');
+          endDiv.className = 'the-end';
+          endDiv.textContent = '— THE END —';
+          story.appendChild(endDiv);
+        } else {
+          renderChoices(data.choices);
+        }
+      } catch (err) {
+        status.textContent = 'Error: ' + err.message;
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    function freeAct() {
+      const v = freeInput.value.trim();
+      if (!v) return;
+      freeInput.value = '';
+      act(v);
+    }
+
+    startBtn.addEventListener('click', begin);
+    genreInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') begin(); });
+    freeBtn.addEventListener('click', freeAct);
+    freeInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') freeAct(); });
+    restartBtn.addEventListener('click', () => location.reload());
+  </script>
+</body>
+</html>
